@@ -19,9 +19,10 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Circuits.Linear
-  exposed-modules:     Circuits.Network
+  exposed-modules:     Circuits.Analysis.DC
+                       Circuits.Components.Linear
                        Circuits.Internal.Util
+                       Circuits.Circuit
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.9 && <4.10
