@@ -33,10 +33,17 @@ data Variable = Ground | Index { _elementIndex :: Int, _elementValue :: Double }
 makePrisms ''Variable
 makeLenses ''Variable
 
+-- | Encapsulates a node variable.
+-- A node variable holds the voltage of a node relative to the ground. The unit is Volt.
 newtype Node = Node { _nodeVar :: Variable }
   deriving (Show, Generic)
 makeFields ''Node
 
+-- | Encapsulates a branch variable.
+-- A branch variable holds the current across a node. The unit is Ampere.
+-- Note that the special 'Ground' value of variables does not physically make
+-- sense for branch variables. It would correspond to an omitted current that
+-- we know must always be zero.
 newtype Branch = Branch { _branchVar :: Variable }
   deriving (Show, Generic)
 makeFields ''Branch
@@ -135,39 +142,8 @@ instance GHasVariables g => GHasVariables (M1 i t g) where
 -- * Lenses
 makeLenses ''Circuit
 
-{-
--- | A mutable system of linear equations suitable for representing linear circuits.
-data MSystem s v = MSystem
-  { _msystemNodes   :: Int -- ^ the number of nodes in this system
-  , _msystemSources :: Int -- ^ the number of voltage sources in this system
-  , _msystemCoeff   :: VSM.MVector s v -- ^ the underlying storage of the equations coefficients in row-major order
-  , _msystemRhs     :: VSM.MVector s v -- ^ the right hand side of the equations
-  }
-
--- | Creates a new mutable linear circuit equation system with the given number of nodes and voltage sources.
-newMSystem :: (PrimMonad m, VSM.Storable v, Num v) => Int -> Int -> m (MSystem (PrimState m) v)
-newMSystem numNodes numSources =
-  MSystem numNodes numSources <$> VSM.replicate (n * n) 0 <*> VSM.replicate n 0
-  where n = numNodes + numSources
-
--- | A reference to a node or voltage source in the system of equations.
-data NodeRef = Ground | Var Int
-makePrisms ''NodeRef
-
--- | Computes the index into the flat buffer of matrix variables from a row and column.
-flatIndex :: MSystem s v -- ^ the equation system
-          -> Int -- ^ matrix row
-          -> Int -- ^ matrix column
-          -> Int -- ^ flat buffer index
-flatIndex MSystem{..} row col = row * (_msystemNodes + _msystemSources) + col
-
--- | Stamps an entry in the matrix, ignoring the ground node.
-stampMatrix :: (PrimMonad m, Num v, VSM.Storable v) => MSystem (PrimState m) v -> NodeRef -> NodeRef -> v -> m ()
-stampMatrix sys@MSystem{..} (Var row) (Var col) value = VSM.modify _msystemCoeff (+ value) (flatIndex sys row col)
-stampMatrix _ _ _ _ = return () -- no stamping when ground is involved
-
--- | Stamps an entry in the right hand side of the equations, ignoring the ground node.
-stampRhs :: (PrimMonad m, Num v, VSM.Storable v) => MSystem (PrimState m) v -> NodeRef -> v -> m ()
-stampRhs MSystem{..} (Var row) value = VSM.modify _msystemRhs (+ value) row
-stampRhs _ Ground _                  = return () -- no stamping for ground
--}
+-- | Returns the voltage of a node, fixing the ground to 0V.
+nodeVoltage :: Getter Node Double
+nodeVoltage = var . Control.Lens.to g where
+  g Ground = 0
+  g (Index _ v) = v

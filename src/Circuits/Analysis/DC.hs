@@ -15,7 +15,6 @@
 module Circuits.Analysis.DC where
 
 import           Control.Lens
-import           Control.Monad.Except
 import           Control.Monad.Primitive
 import           Control.Monad.ST
 import           Data.Primitive.MutVar
@@ -24,9 +23,9 @@ import qualified Data.Vector.Storable         as VS
 import qualified Data.Vector.Storable.Mutable as VSM
 import           Generics.Deriving.Lens
 import           GHC.Generics
-import           GHC.Generics.Lens
 import qualified Numeric.LinearAlgebra        as HMatrix
-import qualified Numeric.LinearAlgebra.Data   as HMatrix
+
+import           Debug.Trace
 
 import           Circuits.Circuit
 
@@ -156,7 +155,7 @@ flatIndex :: SimulationState s v -- ^ the equation system
           -> Int -- ^ matrix row
           -> Int -- ^ matrix column
           -> Int -- ^ flat buffer index
-flatIndex sim row col = row * (size sim) + col
+flatIndex sim row col = row * size sim + col
 
 class Monad m => Simulation m v sys | sys -> v  where
   stampMatrix :: sys -> Variable -> Variable -> v -> m ()

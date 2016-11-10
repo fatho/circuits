@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveFunctor          #-}
 {-# LANGUAGE DeriveGeneric          #-}
 {-# LANGUAGE DeriveTraversable      #-}
+{-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
@@ -11,12 +12,17 @@
 {-# LANGUAGE TemplateHaskell        #-}
 module Circuits.Components.Linear where
 
-import Control.Monad
+import           Control.Applicative
 import           Control.Lens
-import GHC.Generics
+import           Control.Monad
+import           Data.Function
+import           Debug.Trace
+import           GHC.Generics
 
+import           Circuits.Analysis.DC
 import           Circuits.Circuit
-import Circuits.Analysis.DC
+
+-- * Components
 
 -- | Describes a dependency on a voltage
 data VoltageDependency = VoltageDependency
@@ -110,10 +116,51 @@ makeFields ''Resistor
 instance SimulateDC Resistor where
   beginSolve r _ sys = do
     let conductance = recip $ r ^. resistance
-    stampMatrix sys (r ^. positiveNode . var) (r ^. positiveNode . var) conductance
-    stampMatrix sys (r ^. negativeNode . var) (r ^. negativeNode . var) conductance
-    stampMatrix sys (r ^. positiveNode . var) (r ^. negativeNode . var) (-conductance)
-    stampMatrix sys (r ^. negativeNode . var) (r ^. positiveNode . var) (-conductance)
+    stampResistor sys (r ^. positiveNode) (r ^. negativeNode) conductance
   beginIteration _ _ _ = return ()
   endIteration x _ = x
   endSolve x _ = x
+
+-- | Stamps a resistor onto a circuit equation matrix.
+stampResistor :: (Simulation m v sys, Num v)
+              => sys -> Node -> Node -> v -> m ()
+stampResistor sys pos neg conductance = do
+  stampMatrix sys (pos ^. var) (pos ^. var) conductance
+  stampMatrix sys (neg ^. var) (neg ^. var) conductance
+  stampMatrix sys (pos ^. var) (neg ^. var) (-conductance)
+  stampMatrix sys (neg ^. var) (pos ^. var) (-conductance)
+
+-- | Norton-equivalent of capacitor
+data Capacitor = Capacitor
+  { _capacitorCapacity     :: Double -- ^ the capacitance of the capacitor (measured in F)
+  , _capacitorNegativeNode :: Node
+  , _capacitorPositiveNode :: Node
+  }
+  deriving (Show, Generic, HasVariables)
+makeFields ''Capacitor
+
+instance SimulateDC Capacitor where
+  -- in the DC steady state, a capacitor behaves as if there is no connection at all
+  beginSolve _ SteadyState _ = return ()
+  beginSolve cap (Step _ dt) sys = do
+    -- REMARK: currently just Backward Euler is implemented
+    -- conductance of resistor in Norton equivalent
+    let g = view capacity cap / dt
+    -- current of current source in Norton equivalent
+    let i = view capacity cap / dt * view voltageAcross cap
+    stampResistor sys (cap ^. positiveNode) (cap ^. negativeNode) g
+    -- current source is running opposite
+    stampRhs sys (cap ^. positiveNode . var) i
+    stampRhs sys (cap ^. negativeNode . var) (- i)
+
+  -- capacitor behaves like a linear component in each step, no iterations necessary
+  beginIteration _ _ _ = return ()
+  endIteration cap _ = cap
+
+  endSolve cap _ = cap
+
+-- * Utility Functions
+
+voltageAcross :: (HasPositiveNode c Node, HasNegativeNode c Node) => Getter c Double
+voltageAcross = Control.Lens.to $
+  liftA2 ((-) `on` view nodeVoltage) (view positiveNode) (view negativeNode)
