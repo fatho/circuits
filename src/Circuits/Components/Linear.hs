@@ -62,22 +62,6 @@ data VoltageSource = VoltageSource
   deriving (Show, Generic, HasVariables)
 makeFields ''VoltageSource
 
-instance SimulateDC VoltageSource where
-  beginSolve vs _ sys = do
-    forM_ (zip [1, -1] [vs ^. positiveNode . var, vs ^. negativeNode . var]) $ \(sign, node) -> do
-      stampMatrix sys (vs ^. self . var) node sign
-      stampMatrix sys node (vs ^. self . var) sign
-    case vs ^. voltage of
-      Independent v -> stampRhs sys (vs ^. self . var) v
-      VoltageDependent vd -> do
-        stampMatrix sys (vs ^. self . var) (vd ^. negativeControl . var) (vd ^. gain)
-        stampMatrix sys (vs ^. self . var) (vd ^. positiveControl . var) (negate $ vd ^. gain)
-      CurrentDependent cd ->
-        stampMatrix sys (vs ^. self . var) (cd ^. control . var) (negate $ cd ^. gain)
-  beginIteration _ _ _ = return ()
-  endIteration x _ = x
-  endSolve x _ = x
-
 -- | An ideal independent current source.
 data CurrentSource = CurrentSource
   { _currentSourceCurrent      :: Source -- ^ the current through the current source from the positive to the negative terminal
@@ -87,39 +71,14 @@ data CurrentSource = CurrentSource
   deriving (Show, Generic, HasVariables)
 makeFields ''CurrentSource
 
-instance SimulateDC CurrentSource where
-  beginSolve cs _ sys = case cs ^. current of
-    Independent c -> do
-      stampRhs sys (cs ^. positiveNode . var) (- c)
-      stampRhs sys (cs ^. negativeNode . var) c
-    VoltageDependent vd -> do
-      stampMatrix sys (cs ^. positiveNode . var) (vd ^. negativeControl . var) (negate $ vd ^. gain)
-      stampMatrix sys (cs ^. positiveNode . var) (vd ^. positiveControl . var) (vd ^. gain)
-      stampMatrix sys (cs ^. negativeNode . var) (vd ^. negativeControl . var) (vd ^. gain)
-      stampMatrix sys (cs ^. negativeNode . var) (vd ^. positiveControl . var) (negate $ vd ^. gain)
-    CurrentDependent cd -> do
-      stampMatrix sys (cs ^. positiveNode . var) (cd ^. control . var) (cd ^. gain)
-      stampMatrix sys (cs ^. negativeNode . var) (cd ^. control . var) (negate $ cd ^. gain)
-  beginIteration _ _ _ = return ()
-  endIteration x _ = x
-  endSolve x _ = x
-
 -- | An ideal resistor.
 data Resistor = Resistor
-  { _resistorResistance   :: Double
+  { _resistorResistance   :: Double -- ^ resistance in Ohm
   , _resistorNegativeNode :: Node -- ^ the node the negative terminal is connected to
   , _resistorPositiveNode :: Node -- ^ the node the positive terminal is connected to
   }
   deriving (Show, Generic, HasVariables)
 makeFields ''Resistor
-
-instance SimulateDC Resistor where
-  beginSolve r _ sys = do
-    let conductance = recip $ r ^. resistance
-    stampResistor sys (r ^. positiveNode) (r ^. negativeNode) conductance
-  beginIteration _ _ _ = return ()
-  endIteration x _ = x
-  endSolve x _ = x
 
 -- | Stamps a resistor onto a circuit equation matrix.
 stampResistor :: (Simulation m v sys, Num v)
@@ -138,6 +97,49 @@ data Capacitor = Capacitor
   }
   deriving (Show, Generic, HasVariables)
 makeFields ''Capacitor
+
+-- * Instances
+
+instance SimulateDC VoltageSource where
+  beginSolve vs _ sys = do
+    forM_ (zip [1, -1] [vs ^. positiveNode . var, vs ^. negativeNode . var]) $ \(sign, node) -> do
+      stampMatrix sys (vs ^. self . var) node sign
+      stampMatrix sys node (vs ^. self . var) sign
+    case vs ^. voltage of
+      Independent v -> stampRhs sys (vs ^. self . var) v
+      VoltageDependent vd -> do
+        stampMatrix sys (vs ^. self . var) (vd ^. negativeControl . var) (vd ^. gain)
+        stampMatrix sys (vs ^. self . var) (vd ^. positiveControl . var) (negate $ vd ^. gain)
+      CurrentDependent cd ->
+        stampMatrix sys (vs ^. self . var) (cd ^. control . var) (negate $ cd ^. gain)
+  beginIteration _ _ _ = return ()
+  endIteration x _ = x
+  endSolve x _ = x
+
+instance SimulateDC CurrentSource where
+  beginSolve cs _ sys = case cs ^. current of
+    Independent c -> do
+      stampRhs sys (cs ^. positiveNode . var) (- c)
+      stampRhs sys (cs ^. negativeNode . var) c
+    VoltageDependent vd -> do
+      stampMatrix sys (cs ^. positiveNode . var) (vd ^. negativeControl . var) (negate $ vd ^. gain)
+      stampMatrix sys (cs ^. positiveNode . var) (vd ^. positiveControl . var) (vd ^. gain)
+      stampMatrix sys (cs ^. negativeNode . var) (vd ^. negativeControl . var) (vd ^. gain)
+      stampMatrix sys (cs ^. negativeNode . var) (vd ^. positiveControl . var) (negate $ vd ^. gain)
+    CurrentDependent cd -> do
+      stampMatrix sys (cs ^. positiveNode . var) (cd ^. control . var) (cd ^. gain)
+      stampMatrix sys (cs ^. negativeNode . var) (cd ^. control . var) (negate $ cd ^. gain)
+  beginIteration _ _ _ = return ()
+  endIteration x _ = x
+  endSolve x _ = x
+
+instance SimulateDC Resistor where
+  beginSolve r _ sys = do
+    let conductance = recip $ r ^. resistance
+    stampResistor sys (r ^. positiveNode) (r ^. negativeNode) conductance
+  beginIteration _ _ _ = return ()
+  endIteration x _ = x
+  endSolve x _ = x
 
 instance SimulateDC Capacitor where
   -- in the DC steady state, a capacitor behaves as if there is no connection at all
